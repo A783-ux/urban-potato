@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<title>Food Health Scanner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root{--bg:#f6f7f4;--card:#fff;--text:#1b1f1a;--muted:#667064;--line:#e2e6df;--accent:#2f7d46;--green:#2f9e57;--amber:#d99a00;--red:#d64545;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121512;--card:#1c211b;--text:#eef2ec;--muted:#9aa597;--line:#2d352b;--accent:#3da75c;--green:#2f9e57;--amber:#d99a00;--red:#d64545}}
+:root[data-theme="dark"]{--bg:#121512;--card:#1c211b;--text:#eef2ec;--muted:#9aa597;--line:#2d352b;--accent:#3da75c;--green:#2f9e57;--amber:#d99a00;--red:#d64545}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.5}
+.wrap{max-width:480px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:22px;margin:4px 0 16px;text-align:center}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+button{font:inherit;cursor:pointer;border:0;border-radius:12px;padding:16px;background:var(--accent);color:#fff;font-weight:700;width:100%;font-size:17px}
+button.alt{background:transparent;color:var(--text);border:1px solid var(--line);font-size:15px;padding:12px;font-weight:600}
+input{font:inherit;width:100%;padding:11px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+label{font-size:13px;color:var(--muted);display:block;margin-bottom:4px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
+video{width:100%;border-radius:12px;background:#000;max-height:280px;object-fit:cover}
+.hide{display:none}
+.small{font-size:13px;color:var(--muted)}
+.verdict{border-radius:16px;padding:22px 16px;color:#fff;text-align:center;margin-bottom:12px}
+.verdict .big{font-size:30px;font-weight:800;margin:0}
+.verdict p{margin:6px 0 0;font-size:15px}
+.why h3{margin:0 0 6px;font-size:17px}
+.reason{padding:10px 0;border-bottom:1px solid var(--line)}
+.reason:last-child{border:0}
+.reason b{display:block}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+summary{cursor:pointer;color:var(--muted);font-size:14px;text-align:center;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔍 Food Health Scanner</h1>
+
+  <div class="card" id="scanCard">
+    <button id="scanBtn">📷 Barcode Scan Karo</button>
+    <button class="alt hide" id="photoBtn" style="margin-top:10px">📸 Photo kheench ke scan karo</button>
+    <input type="file" id="photoIn" accept="image/*" capture="environment" class="hide">
+    <div id="camBox" class="hide" style="margin-top:12px">
+      <video id="cam" playsinline muted></video>
+      <div id="readerBox" class="hide"><div id="reader"></div></div>
+      <p class="small" style="text-align:center">Barcode ko camera ke saamne rakho...</p>
+      <button class="alt" id="stopBtn">Band karo</button>
+    </div>
+    <div id="reader2" class="hide"></div>
+    <p class="small" id="msg" style="text-align:center;margin:10px 0 0"></p>
+    <details>
+      <summary>Barcode number se dhundo</summary>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <input id="code" inputmode="numeric" placeholder="Barcode number">
+        <button id="findBtn" style="width:90px;padding:10px;font-size:15px">Dhundo</button>
+      </div>
+    </details>
+  </div>
+
+  <div class="card hide" id="manual">
+    <b id="manTitle">Is product ka data nahi mila</b>
+    <p class="small" style="margin:4px 0 0">Pack ke peeche "Nutrition Information" dekho aur per 100g/100ml wali values daalo.</p>
+    <div class="grid">
+      <div><label>Sugar (g)</label><input id="sugar" type="number" inputmode="decimal"></div>
+      <div><label>Sodium (mg)</label><input id="sodium" type="number" inputmode="decimal"></div>
+      <div><label>Total Fat (g)</label><input id="fat" type="number" inputmode="decimal"></div>
+      <div><label>Saturated Fat (g)</label><input id="sat" type="number" inputmode="decimal"></div>
+      <div><label>Calories (kcal)</label><input id="kcal" type="number" inputmode="decimal"></div>
+      <div><label>Pack size (g/ml)</label><input id="pack" type="number" inputmode="decimal"></div>
+    </div>
+    <button id="goBtn">Result Dekho</button>
+  </div>
+
+  <div id="report"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script>
+var $=function(id){return document.getElementById(id)};
+var curName="Ye product";
+
+// ---------- Product lookup (Open Food Facts) ----------
+async function lookup(code){
+  code=(code||"").trim();
+  if(!code)return;
+  $("code").value=code;
+  $("report").innerHTML="";$("manual").classList.add("hide");
+  $("msg").textContent="Barcode "+code+" mila. Product dhundh raha hoon...";
+  try{
+    var r=await fetch("https://world.openfoodfacts.org/api/v2/product/"+encodeURIComponent(code)+".json?fields=product_name,nutriments,quantity");
+    var d=await r.json();
+    if(d.status===1&&d.product&&d.product.nutriments){
+      var n=d.product.nutriments;
+      var sodium=n.sodium_100g!=null?n.sodium_100g*1000:(n.salt_100g!=null?n.salt_100g*400:null);
+      var p={name:d.product.product_name||"Ye product",sugar:n.sugars_100g,fat:n.fat_100g,sat:n["saturated-fat_100g"],sodium:sodium,kcal:n["energy-kcal_100g"],pack:null};
+      if(p.sugar!=null||p.fat!=null||p.sodium!=null){curName=p.name;$("msg").textContent="";showReport(p);return}
+    }
+  }catch(e){}
+  askManual(code);
+}
+function askManual(code){
+  $("msg").textContent="";
+  $("manTitle").textContent="Barcode "+code+": data nahi mila";
+  ["sugar","sodium","fat","sat","kcal","pack"].forEach(function(i){$(i).value=""});
+  curName="Ye product";
+  $("manual").classList.remove("hide");
+  $("manual").scrollIntoView({behavior:"smooth"});
+}
+$("findBtn").onclick=function(){lookup($("code").value)};
+$("goBtn").onclick=function(){
+  var g=function(i){var x=parseFloat($(i).value);return isNaN(x)?null:x};
+  var p={name:curName,sugar:g("sugar"),fat:g("fat"),sat:g("sat"),sodium:g("sodium"),kcal:g("kcal"),pack:g("pack")};
+  if(p.sugar==null&&p.fat==null&&p.sodium==null&&p.sat==null){$("msg").textContent="Kam se kam ek value daalo.";return}
+  $("msg").textContent="";showReport(p);
+};
+
+// ---------- Camera scanning ----------
+var stream=null,timer=null,h5=null;
+function stopAll(){
+  if(timer)clearInterval(timer);timer=null;
+  if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}
+  if(h5){var x=h5;h5=null;x.stop().then(function(){x.clear()}).catch(function(){})}
+  $("camBox").classList.add("hide");$("readerBox").classList.add("hide");$("cam").classList.remove("hide");
+}
+$("stopBtn").onclick=stopAll;
+function found(c){stopAll();lookup(c)}
+function failed(){
+  stopAll();
+  $("msg").textContent="Live camera is screen me nahi khul raha. Neeche wale button se photo kheencho.";
+  $("photoBtn").classList.remove("hide");
+}
+$("scanBtn").onclick=async function(){
+  $("msg").textContent="";$("report").innerHTML="";
+  if("BarcodeDetector" in window&&navigator.mediaDevices){
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+      var v=$("cam");v.srcObject=stream;await v.play();$("camBox").classList.remove("hide");
+      var det=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128"]});
+      timer=setInterval(async function(){
+        try{var r=await det.detect(v);if(r.length)found(r[0].rawValue)}catch(e){}
+      },400);
+      return;
+    }catch(e){stopAll()}
+  }
+  if(window.Html5Qrcode){
+    try{
+      $("cam").classList.add("hide");$("readerBox").classList.remove("hide");$("camBox").classList.remove("hide");
+      h5=new Html5Qrcode("reader");
+      await h5.start({facingMode:"environment"},{fps:10,qrbox:{width:250,height:120}},function(t){found(t)},function(){});
+      return;
+    }catch(e){}
+  }
+  failed();
+};
+$("photoBtn").onclick=function(){$("photoIn").click()};
+$("photoIn").onchange=async function(e){
+  var f=e.target.files[0];if(!f)return;
+  $("msg").textContent="Photo padh raha hoon...";
+  try{
+    var s=new Html5Qrcode("reader2");
+    var t=await s.scanFile(f,false);
+    lookup(t);
+  }catch(err){
+    $("msg").textContent="Photo me barcode nahi mila. Barcode close se, saaf kheencho. Ya number likh ke dhundo.";
+  }
+  e.target.value="";
+};
+
+// ---------- Health verdict ----------
+function grade(v,low,high){return v<=low?0:(v>high?2:1)}
+var COL=["var(--green)","var(--amber)","var(--red)"];
+function showReport(p){
+  var salt=p.sodium==null?null:p.sodium*2.5/1000;
+  var items=[];
+  if(p.sugar!=null){
+    var g=grade(p.sugar,5,22.5),tsp=(p.sugar/4).toFixed(1);
+    items.push({g:g,t:"Sugar: "+p.sugar.toFixed(1)+" g (lagbhag "+tsp+" chammach per 100g/ml)",
+      y:["Sugar kam hai, ye accha hai.","Sugar medium hai. Roz zyada lena theek nahi.","Sugar bahut zyada hai. Isse motapa, daant kharab hona aur diabetes ka risk badhta hai."][g]});
+  }
+  if(p.sodium!=null){
+    var g2=grade(salt,0.3,1.5);
+    items.push({g:g2,t:"Namak (sodium): "+p.sodium.toFixed(0)+" mg per 100g/ml",
+      y:["Namak kam hai, ye accha hai.","Namak medium hai.","Namak bahut zyada hai. Isse blood pressure aur dil ki bimari ka risk badhta hai."][g2]});
+  }
+  if(p.fat!=null){
+    var g3=grade(p.fat,3,17.5);
+    items.push({g:g3,t:"Fat: "+p.fat.toFixed(1)+" g per 100g/ml",
+      y:["Fat kam hai, ye accha hai.","Fat medium hai.","Fat bahut zyada hai. Isse weight aur cholesterol badh sakta hai."][g3]});
+  }
+  if(p.sat!=null){
+    var g4=grade(p.sat,1.5,5);
+    items.push({g:g4,t:"Saturated fat: "+p.sat.toFixed(1)+" g per 100g/ml",
+      y:["Saturated fat kam hai, ye accha hai.","Saturated fat medium hai.","Saturated fat zyada hai. Ye dil ke liye sabse nuksaan wala fat hai."][g4]});
+  }
+  if(p.kcal!=null&&p.kcal>450){
+    items.push({g:1,t:"Calories: "+Math.round(p.kcal)+" kcal per 100g",y:"Calories bahut zyada hain, thoda sa khane me bhi bahut energy mil jaati hai."});
+  }
+  var worst=Math.max.apply(null,items.map(function(i){return i.g}));
+  var sum=items.reduce(function(a,i){return a+i.g},0)/items.length;
+  var lvl=(worst===2&&sum>=1)||sum>=1.25?2:(worst===2||sum>=0.5?1:0);
+  var V=[
+    {big:"✅ Healthy hai",sub:"Aap ye aaram se kha/pee sakte ho."},
+    {big:"🟡 Kabhi-kabhi chalega",sub:"Roz ya zyada matra me mat lo."},
+    {big:"❌ Unhealthy hai",sub:"Ise kam se kam lo, roz mat lo."}][lvl];
+  var h='<div class="verdict" style="background:'+COL[lvl]+'"><p style="margin:0;font-size:14px;opacity:.9">'+esc(p.name)+'</p><p class="big">'+V.big+'</p><p>'+V.sub+'</p></div>';
+  h+='<div class="card why"><h3>Kyun?</h3>';
+  items.forEach(function(i){h+='<div class="reason"><b><span class="dot" style="background:'+COL[i.g]+'"></span>'+i.t+'</b>'+i.y+'</div>'});
+  if(p.pack&&p.sugar!=null){h+='<div class="reason"><b>🥄 Poora pack khane par</b>Sugar '+(p.sugar*p.pack/100).toFixed(1)+' g (lagbhag '+(p.sugar*p.pack/400).toFixed(1)+' chammach). WHO ke hisaab se roz ka limit lagbhag 6 chammach hai.</div>'}
+  h+='</div><button class="alt" onclick="window.scrollTo({top:0,behavior:\'smooth\'})">Dusra product scan karo</button>';
+  $("report").innerHTML=h;
+  $("report").scrollIntoView({behavior:"smooth"});
+}
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+</script>
+</body>
+</html>
